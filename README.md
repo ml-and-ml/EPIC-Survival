@@ -1,5 +1,6 @@
-# EPIC-Survival
-This repository provides training and testing scripts for the article *EPIC-Survival: End-to-end Part Inferred Clustering for Survival Analysis, with Prognostic Stratification Boosting* by **Muhammad and Xie et al. 2021**.
+# EPIC-Survival 
+
+This repository provides training and testing scripts for the article *EPIC-Survival: End-to-end Part Inferred Clustering for Survival Analysis with Prognostic Stratification Boosting* by **Muhammad and Xie et al. 2021**.
 
 ## How to Use
 The main training script is `train.py`. Please use `python train.py --help` to see complete set of training parameters and their descriptions.
