@@ -16,10 +16,11 @@ parser.add_argument('-s', '--sample', default=100, type=int, metavar='int', help
 parser.add_argument('--verbose', default=0, type=int, metavar='0 or 1', help='set to 1 to print extra training details')
 parser.add_argument('-k', '--topk', default=3, type=int, metavar='int', help='# top tiles to sample from for part')
 parser.add_argument('--subsample', default=1, type=float, metavar='<1', help='percent slides subsampled per epoch')
-parser.add_argument('--clusteringlambda', default=1, type=float, metavar='0 to 1', help='% constraint weight in loss')
-parser.add_argument('--weightdecay', default=1e-4, type=float, metavar='0 to 1', help='% constraint weight in loss')
+parser.add_argument('--clusteringlambda', default=1, type=float, metavar='0 to 1', help='constraint weight in loss')
+parser.add_argument('--weightdecay', default=1e-4, type=float, metavar='0 to 1', help='weight decat')
 parser.add_argument('--level', default=0, type=int, metavar='0 or 1', help='tile resolution')
-parser.add_argument('--slide_path', default=0, type=int, metavar='dir', help='path to svs directory')
+parser.add_argument('--slide_path', default='./', type=str, metavar='dir', help='path to svs directory')
+parser.add_argument('--library', default='./', type=str, metavar='file', help='path to tile library csv')
 
 import os
 import utils
@@ -45,7 +46,7 @@ def main():
     args = parser.parse_args()
 
     gpu = torch.device('cuda')
-    root_output = '/lila/data/fuchs/hassan/epl/cholangio/'
+    root_output = 'output path'#change
     if args.out == 0:
         out_dir = os.path.join(root_output, 'test')
     elif args.out == 1:
@@ -86,7 +87,7 @@ def main():
 
     print('Initialization [2/4] ........ Loading Coordinate File and Creating Training/Validation Split')
 
-    data = pd.read_csv('path to dataset library')
+    data = pd.read_csv(args.library)
     if args.train_full == 1:
         train_library = data[data.Split != 'test'].reset_index(drop=True)
         validate = 0
