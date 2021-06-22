@@ -5,6 +5,18 @@ This repository provides training and testing scripts for the article *EPIC-Surv
 ## How to Use
 The main training script is `train.py`. Please use `python train.py --help` to see complete set of training parameters and their descriptions.
 
+The tile library (csv) should have the following format:
+
+SlideID | x | y | Duration | Event
+------------ | ------------- | -------------| -------------| -------------
+1 | 24521 | 23426 | 16.2 | 0 
+1 | 6732 | 3323 | 16.2 | 0 
+1 | 1232 | 5551 | 16.2 | 0
+... | ... | ... | ... | ... 
+324 | 34265 | 122 | 3.0 | 1 
+
+The dataloader will load all `.svs` images at initiation, and pull tiles using the `(x,y)` coordinates during training.
+
 ## Python Dependencies
 * torch 1.8.1
   * torchvision 0.9.1
