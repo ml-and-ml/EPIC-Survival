@@ -4,7 +4,12 @@ This repository provides training and testing scripts for the article *EPIC-Surv
 ## How to Use
 The main training script is `train.py`. Please use `python train.py --help` to see complete set of training parameters and their descriptions.
 
-## Dependencies
+## Python Dependencies
+* torch 1.8.1
+  * torchvision 0.9.1
+* lifelines 0.23.8
+* openslide 1.1.1
+  * *Note: We recommend modifying openslide to correct for memory leak issue. Please see https://github.com/openslide/openslide-python/issues/24 for more information.*
 
 ## Reference
 If you find our work useful, please consider citing our paper:
