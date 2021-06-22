@@ -17,6 +17,12 @@ SlideID | x | y | Duration | Event
 
 The dataloader will load all `.svs` images at initiation, and pull tiles using the `(x,y)` coordinates during training.
 
+The following will be generated in the output folder:
+* convergence.csv
+  * a file containing training loss, training concordance index, and validation condorance index over training epochs
+* /clustering_grid_top
+  * a folder where a clustering visualization for top 20 tiles of each cluster is displayed and saved as a `.png` 
+
 ## Python Dependencies
 * torch 1.8.1
   * torchvision 0.9.1
