@@ -30,6 +30,9 @@ The following will be generated in the output folder:
 * openslide 1.1.1
   * *Note: We recommend modifying openslide to correct for memory leak issue. Please see https://github.com/openslide/openslide-python/issues/24 for more information.*
 
+## License
+Unfortunately, due to insitutional guidelines, this project is under the CC-BY-NC 4.0 license. See [LICENSE](LICENSE.md) for details. (c) MSK
+
 ## Cite
 If you find our work useful, please consider citing our [EPIC-Survival Paper](https://openreview.net/pdf?id=JSSwHS_GU63):
 ```
