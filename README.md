@@ -15,7 +15,7 @@ SlideID | x | y | Duration | Event
 ... | ... | ... | ... | ... 
 324 | 34265 | 122 | 3.0 | 1 
 
-The dataloader will load all `.svs` images at initiation, and pull tiles using the `(x,y)` coordinates during training.
+The dataloader will load all `.svs` images located at `args.slide_path` during initiation, and pull tiles on-the-fly using the `(x,y)` coordinates during training.
 
 The following will be generated in the output folder:
 * convergence.csv
