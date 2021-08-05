@@ -15,7 +15,7 @@ SlideID | x | y | Duration | Event
 ... | ... | ... | ... | ... 
 324 | 34265 | 122 | 3.0 | 1 
 
-The dataloader will load all `.svs` images at initiation, and pull tiles using the `(x,y)` coordinates during training.
+The dataloader will load all `.svs` images located at `args.slide_path` during initiation, and pull tiles on-the-fly using the `(x,y)` coordinates during training.
 
 The following will be generated in the output folder:
 * convergence.csv
@@ -30,10 +30,12 @@ The following will be generated in the output folder:
 * openslide 1.1.1
   * *Note: We recommend modifying openslide to correct for memory leak issue. Please see https://github.com/openslide/openslide-python/issues/24 for more information.*
 
-## Reference
-If you find our work useful, please consider citing our paper:
+## License
+Unfortunately, due to insitutional guidelines, this project is under the CC-BY-NC 4.0 license. See [LICENSE](LICENSE.md) for details. (c) MSK
 
-```bash
+## Cite
+If you find our work useful, please consider citing our [EPIC-Survival Paper](https://openreview.net/pdf?id=JSSwHS_GU63):
+```
 @inproceedings{muhammad2021epic,
   title={EPIC-Survival: End-to-end Part Inferred Clustering for Survival Analysis, with Prognostic Stratification Boosting},
   author={Muhammad, Hassan and Xie, Chensu and Sigel, Carlie S and Doukas, Michael and Alpert, Lindsay and Simpson, Amber Lea and Fuchs, Thomas J},
