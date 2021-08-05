@@ -38,7 +38,7 @@ The following will be generated in the output folder:
 Unfortunately, due to insitutional guidelines, this project is under the CC-BY-NC 4.0 license. See [LICENSE](LICENSE.md) for details. (c) Memorial Sloan Kettering Cancer Center
 
 ## Cite
-If you find our work useful, please consider citing our [EPIC-Survival Paper](https://openreview.net/pdf?id=JSSwHS_GU63):
+If you find our work useful, please consider starring this repo and citing our [EPIC-Survival Paper](https://openreview.net/pdf?id=JSSwHS_GU63):
 ```
 @inproceedings{muhammad2021epic,
   title={EPIC-Survival: End-to-end Part Inferred Clustering for Survival Analysis, with Prognostic Stratification Boosting},
