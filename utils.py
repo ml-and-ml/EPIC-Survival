@@ -3,9 +3,9 @@ import torch
 from openslide import OpenSlide
 from torchvision.utils import save_image
 import torchvision.transforms as transforms
-from pdb import set_trace
 from matplotlib import cm
-
+import torchvision.transforms.functional as TF
+import random
 
 class AverageMeter(object):
     """Computes and stores the average and current value"""
@@ -128,3 +128,13 @@ def get_mean_and_std(dataset, library):
     mean.div_(len(dataset))
     std.div_(len(dataset))
     return mean, std
+
+
+
+class RotateSq:
+    """Rotate by one of the given angles."""
+    def __init__(self, angles):
+        self.angles = angles
+    def __call__(self, x):
+        angle = random.choice(self.angles)
+        return TF.rotate(x, angle)

@@ -25,16 +25,14 @@ parser.add_argument('--library', default='./', type=str, metavar='file', help='p
 import os
 import utils
 import torch
-import random
 import dataloaders
 import numpy as np
 import torch.nn as nn
-from pdb import set_trace
 import torch.nn.functional as F
 import torchvision.transforms as transforms
 from models import resblock18, SurvivalResNet
 from lifelines.utils import concordance_index
-import torchvision.transforms.functional as TF
+
 
 
 
@@ -56,7 +54,6 @@ def main():
                                                                 args.topk,
                                                                 args.waist,
                                                                 args.p_batch_size,
-
                                                                 args.weightdecay,
                                                                 )
         if args.train_full == 1:
@@ -106,7 +103,7 @@ def main():
                                         transforms.ColorJitter(.1, .1, .1, .05),
                                         transforms.RandomHorizontalFlip(),
                                         transforms.RandomVerticalFlip(),
-                                        RotateSq(angles=[-180, -90, 0, 90, 180]),
+                                        utils.RotateSq(angles=[-180, -90, 0, 90, 180]),
                                         transforms.ToTensor(),
                                         normalize
                                         ])
@@ -184,7 +181,7 @@ def main():
                     slide_centroids = torch.randn(args.n_cluster, args.waist)
             slide_centroids = calculate_centroids(slide_embedding, slide_assignments, slide_centroids)
             local_centroids[slide.item()] = slide_centroids
-            part_indices, part_weights, c_mask = part_selection2(slide_embedding, slide_centroids, slide_assignments)
+            part_indices, part_weights, c_mask = part_selection(slide_embedding, slide_centroids, slide_assignments)
             top_tiles[slide.item()] = slide_indices[part_indices]
             assignments[slide.item()] = slide_assignments[part_indices]
             part_information[slide.item()] = list(zip(part_weights, c_mask))
@@ -270,7 +267,7 @@ def main():
                         slide_centroids = torch.randn(args.n_cluster, args.waist)
                 slide_centroids = calculate_centroids(slide_embedding, slide_assignments, slide_centroids)
                 local_centroids[slide.item()] = slide_centroids
-                part_indices, part_weights, c_mask = part_selection2(slide_embedding, slide_centroids,slide_assignments)
+                part_indices, part_weights, c_mask = part_selection(slide_embedding, slide_centroids,slide_assignments)
                 top_tiles[slide.item()] = slide_indices[part_indices]
                 assignments[slide.item()] = slide_assignments[part_indices]
                 part_information[slide.item()] = list(zip(part_weights, c_mask))
@@ -415,14 +412,6 @@ class NLPLLossStrat(_Loss):
 
 
 
-class RotateSq:
-    """Rotate by one of the given angles."""
-    def __init__(self, angles):
-        self.angles = angles
-    def __call__(self, x):
-        angle = random.choice(self.angles)
-        return TF.rotate(x, angle)
-
 
 def calculate_centroids(embedding, assignments, centroids):
     for j in range(0, args.n_cluster):
@@ -443,7 +432,7 @@ def assign(batch_embedding, centroids):
     return assignments
 
 
-def part_selection2(slide_embedding, slide_centroids, slide_assignments):
+def part_selection(slide_embedding, slide_centroids, slide_assignments):
     selected_part_indices = torch.zeros(args.n_cluster).long()
     c_mask = np.zeros(args.n_cluster, dtype=int)
     for i in range(0, args.n_cluster):
@@ -471,7 +460,3 @@ def part_selection2(slide_embedding, slide_centroids, slide_assignments):
 
 if __name__ == '__main__':
     main()
-    # lp = line_profiler.LineProfiler()
-    # lp_wrapper = lp(main)
-    # lp_wrapper()
-    # lp.print_
