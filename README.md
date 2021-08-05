@@ -17,6 +17,8 @@ SlideID | x | y | Duration | Event | Split
 ... | ... | ... | ... | ... 
 556 | 2264 | 2436 | 174.0 | 1 | 'test'
 
+In short, this tile library should be a record of all tile coordinates with associated slide level information (duration, event, training split, slide name).
+
 The dataloader will load all `.svs` images located at `args.slide_path` during initiation, and pull tiles on-the-fly using the `(x,y)` coordinates during training.
 
 The following will be generated in the output folder:
