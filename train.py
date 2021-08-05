@@ -19,6 +19,7 @@ parser.add_argument('--subsample', default=1, type=float, metavar='<1', help='pe
 parser.add_argument('--clusteringlambda', default=1, type=float, metavar='0 to 1', help='constraint weight in loss')
 parser.add_argument('--weightdecay', default=1e-4, type=float, metavar='0 to 1', help='weight decat')
 parser.add_argument('--level', default=0, type=int, metavar='0 or 1', help='tile resolution')
+parser.add_argument('--decay_interval', default=0, type=int, metavar='0 or 1', help='epochs between lr drop')
 parser.add_argument('--slide_path', default='./', type=str, metavar='dir', help='path to svs directory')
 parser.add_argument('--library', default='./', type=str, metavar='file', help='path to tile library csv')
 
@@ -28,10 +29,12 @@ import torch
 import dataloaders
 import numpy as np
 import torch.nn as nn
-import torch.nn.functional as F
+from loss import NLPLLossStrat
 import torchvision.transforms as transforms
 from models import resblock18, SurvivalResNet
 from lifelines.utils import concordance_index
+
+from pdb import set_trace
 
 
 def main():
@@ -42,18 +45,18 @@ def main():
     args = parser.parse_args()
 
     gpu = torch.device('cuda')
-    root_output = 'output path'#change
+    root_output = './'#change
     if args.out == 0:
         out_dir = os.path.join(root_output, 'test')
     elif args.out == 1:
         save_path = '{}lr_{}d_{}n_{}p_{}w_{}b_{}wd'.format(args.lr,
-                                                                args.dropout,
-                                                                args.n_cluster,
-                                                                args.topk,
-                                                                args.waist,
-                                                                args.p_batch_size,
-                                                                args.weightdecay,
-                                                                )
+                                                           args.dropout,
+                                                           args.n_cluster,
+                                                           args.topk,
+                                                           args.waist,
+                                                           args.p_batch_size,
+                                                           args.weightdecay,
+                                                            )
         if args.train_full == 1:
             save_path = save_path + '/test'
         out_dir = os.path.join(root_output, save_path)
@@ -76,13 +79,16 @@ def main():
     criterion = NLPLLossStrat()
     optimizer = torch.optim.SGD(model.parameters(), lr=args.lr, weight_decay=args.weightdecay)
     sl = args.decay_interval
+    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[sl, 2 * sl, 3 * sl, 4 * sl], gamma=0.1)
     workers = 10
 
 ###################################################################################################################
 
     print('Initialization [2/4] ........ Loading Coordinate File and Creating Training/Validation Split')
 
-    data = pd.read_csv(args.library)
+    #data = pd.read_csv(args.library)
+    data = torch.load('/lila/data/fuchs/hassan/cholangio/classiceplcholangio_library.pth', encoding='latin1')['library']
+    data = data.astype({"SlideID": int})
     if args.train_full == 1:
         train_library = data[data.Split != 'test'].reset_index(drop=True)
         validate = 0
@@ -127,10 +133,12 @@ def main():
 
     print('Initialization [4/4] ........ Initializing Data Tensors')
     global_centroids = torch.randn(args.n_cluster, args.waist, device=gpu)
+    global local_centroids, top_tiles, part_information, assignments
     local_centroids = dict()
     top_tiles = dict()
     part_information = dict()
     assignments = dict()
+    b_s = args.t_batch_size
     ###################################################################################################################
 
     print('!! -------- Training EPIC-Survival -------- !!')
@@ -143,66 +151,26 @@ def main():
         subset_library = subset_library.sample(frac=1).droplevel(0)
         tile_loader.dataset.assignment(subset_library)
 
-        # Initializing Subset Tensors
-        subset_embedding = torch.randn(len(subset) * args.sample, args.waist)
-        subset_ids = torch.randint(0, args.n_cluster, (len(subset) * args.sample,))
-        subset_indices = torch.randint(0, args.n_cluster, (len(subset) * args.sample,))
-
-        # Measure Embedding and Assign Clusters to Tiles
-        model.eval()
-        with torch.no_grad():  # pass subset tiles through base model to retrieve embeddings
-            for i, (input, _, id, local_ind, index) in enumerate(tile_loader):
-                output = feature_extractor(input.to(gpu))
-                subset_ids[(i * args.t_batch_size):(i * args.t_batch_size + len(input))] = id
-                subset_indices[(i * args.t_batch_size):(i * args.t_batch_size + len(input))] = local_ind
-                emb = output.detach()
-                subset_embedding[(i * args.t_batch_size):(i * args.t_batch_size + len(input))] = emb
-                if epoch >= 1:
-                    batch_assignments = assign(emb, global_centroids)
-                    subset_assignments[(i * args.t_batch_size):(i * args.t_batch_size + len(input))] = batch_assignments
-                if args.verbose == 1:
-                    print('Epoch: [{0}][{1}/{2}] \t'.format(epoch, i + 1, len(tile_loader)))
-        if epoch < 1:
-            subset_assignments = torch.randint(0, args.n_cluster, (len(subset) * args.sample,))
-            global_centroids = calculate_centroids(subset_embedding, subset_assignments, global_centroids)
-
+        # Extract Embedding and Assign Clusters to Tiles for given subset
+        global_centroids, subset_assignments, subset_ids, subset_embedding, subset_indices = \
+            tile_assign(tile_loader, feature_extractor, subset, global_centroids, epoch)
 
         # Calculate Slide-Level Centroids, Choose Parts
-        for slide in subset_ids.unique():
-            slide_embedding = subset_embedding[(subset_ids == slide).nonzero().squeeze()]
-            slide_assignments = subset_assignments[(subset_ids == slide).nonzero().squeeze()]
-            slide_indices = subset_indices[(subset_ids == slide).nonzero().squeeze()]
-
-            if epoch == 0:
-                slide_centroids = torch.randn(args.n_cluster, args.waist)
-            else:
-                if slide.item() in local_centroids:
-                    slide_centroids = local_centroids[slide.item()]
-                else:
-                    slide_centroids = torch.randn(args.n_cluster, args.waist)
-            slide_centroids = calculate_centroids(slide_embedding, slide_assignments, slide_centroids)
-            local_centroids[slide.item()] = slide_centroids
-            part_indices, part_weights, c_mask = part_selection(slide_embedding, slide_centroids, slide_assignments)
-            top_tiles[slide.item()] = slide_indices[part_indices]
-            assignments[slide.item()] = slide_assignments[part_indices]
-            part_information[slide.item()] = list(zip(part_weights, c_mask))
+        slide_to_parts(subset_ids, subset_embedding, subset_assignments, subset_indices, epoch)
 
         # Creating Part Dataset for Survival Training
-        part_dataset = dataloaders.PartLoader(args, subset_library,
-                                              top_tiles, augmentations, part_information)
+        part_dataset = dataloaders.PartLoader(args, subset_library, top_tiles, augmentations, part_information)
         part_loader = torch.utils.data.DataLoader(part_dataset,
                                                   batch_size=args.p_batch_size,
                                                   shuffle=True,
                                                   num_workers=workers,
                                                   pin_memory=True)
-        constraint_dataset = dataloaders.ConstraintLoader(args, subset_library, augmentations, local_centroids,
-                                                          subset_assignments)
+        constraint_dataset = dataloaders.ConstraintLoader(args, subset_library, augmentations, local_centroids, subset_assignments)
         constraint_loader = torch.utils.data.DataLoader(constraint_dataset,
                                                         batch_size=256,
                                                         shuffle=False,
                                                         num_workers=workers,
                                                         pin_memory=True)
-
         #Survival Training
         lossMeter = utils.AverageMeter()
         ciMeter = utils.AverageMeter()
@@ -214,21 +182,18 @@ def main():
             constraint_embedding = feature_extractor(constraint.to(gpu))
             risk, _, _ = model(img, mask, weights, True)
             optimizer.zero_grad()
-            if args.stratify == 1:
-                ordered_risks, order_idx = torch.sort(risk, 0)
-                low = risk[order_idx[(ordered_risks < torch.median(ordered_risks))]]
-                high = risk[order_idx[(ordered_risks >= torch.median(ordered_risks))]]
-                loss = criterion(-risk, duration, event, constraint_embedding, target, low, high)
-            else:
-                loss = criterion(-risk, duration, event, constraint_embedding, target)
+            ordered_risks, order_idx = torch.sort(risk, 0)
+            low = risk[order_idx[(ordered_risks < torch.median(ordered_risks))]]
+            high = risk[order_idx[(ordered_risks >= torch.median(ordered_risks))]]
+            loss = criterion(-risk, duration, event, constraint_embedding, target, low, high, gpu, args)
             loss.backward()
             optimizer.step()
             lossMeter.update(loss.item(), img[0].size(0))
             ci = concordance_index(duration.numpy(), risk.detach().cpu().numpy(), event.numpy())
             ciMeter.update(ci.item(), img[0].size(0))
-            print('Loss {:.3f} \t CI {:.3f}'.format(lossMeter.avg*1000, ciMeter.avg))
-        del constraint, img
+            print('Loss {:.3f} \t CI {:.3f}'.format(lossMeter.avg, ciMeter.avg))
         print('Training Corcordance Index...{:.3f}'.format(ciMeter.avg))
+        scheduler.step()
 
 
             ###################################################################################################################
@@ -246,19 +211,21 @@ def main():
             validation_indices = torch.randint(0, args.n_cluster, (len(validation_set) * 1000,))
             validation_assignments = torch.randint(0, args.n_cluster, (len(validation_set) * 1000,))
 
+
+
             # Measure Embedding and Assign Clusters to Tiles
             tile_loader_validation.dataset.assignment(val_subset_library)
             model.eval()
             with torch.no_grad():  # pass subset tiles through base model to retrieve embeddings
                 for i, (input, _, id, local_ind, index) in enumerate(tile_loader_validation):
                     output = feature_extractor(input.to(gpu))
-                    validation_ids[(i * args.t_batch_size):(i * args.t_batch_size + len(input))] = id
-                    validation_indices[(i * args.t_batch_size):(i * args.t_batch_size + len(input))] = local_ind
+                    validation_ids[(i * b_s):(i * b_s + len(input))] = id
+                    validation_indices[(i * b_s):(i * b_s + len(input))] = local_ind
                     emb = output.detach()
-                    validation_embedding[(i * args.t_batch_size):(i * args.t_batch_size + len(input))] = emb
+                    validation_embedding[(i * b_s):(i * b_s + len(input))] = emb
                     batch_assignments = assign(emb, global_centroids)
                     validation_assignments[
-                    (i * args.t_batch_size):(i * args.t_batch_size + len(input))] = batch_assignments
+                    (i * b_s):(i * b_s + len(input))] = batch_assignments
                     if args.verbose == 1:
                         print('Epoch: [{0}][{1}/{2}] \t'.format(epoch, i, len(tile_loader_validation)))
 
@@ -392,33 +359,6 @@ def main():
 
 
 
-class _Loss(nn.Module):
-    def __init__(self, size_average=None, reduce=None, reduction='mean'):
-        super(_Loss, self).__init__()
-        if size_average is not None or reduce is not None:
-            self.reduction = F._Reduction.legacy_get_string(size_average, reduce)
-        else:
-            self.reduction = reduction
-
-
-class NLPLLossStrat(_Loss):
-    def __init__(self):
-        super(NLPLLossStrat, self).__init__()
-
-    def forward(self, risk_pred, y, e, embedding, target, low, high):
-        e = e.int().unsqueeze(1).to(gpu)
-        y= y.unsqueeze(1)
-        mask = torch.ones(y.shape[0], y.shape[0], device=gpu)
-        mask[(y.T - y) > 0] = 0
-        log_loss = torch.exp(risk_pred) * mask
-        log_loss = torch.sum(log_loss, dim=0) / torch.sum(mask, dim=0)
-        log_loss = torch.log(log_loss).reshape(-1, 1)
-        neg_log_loss = -torch.sum((risk_pred - log_loss) * e) / torch.sum(e)
-        clustering_loss = F.mse_loss(embedding, target.cuda())
-        strat_loss = 1 / (1 + torch.abs((high.mean() - low.mean())))
-        strat_loss = F.smooth_l1_loss(strat_loss, torch.zeros(1).squeeze().to(gpu), reduction='none').to(gpu)
-        return neg_log_loss + args.clusteringlambda * clustering_loss + strat_loss
-
 
 
 def calculate_centroids(embedding, assignments, centroids):
@@ -448,9 +388,6 @@ def part_selection(slide_embedding, slide_centroids, slide_assignments):
         if specific_embedding.size(0) > 0:
             specific_centroid = slide_centroids[i].expand(specific_embedding.shape)
             dist = torch.pow(torch.pow(specific_embedding - specific_centroid, 2).sum(1), .5)
-            # if len(dist) >= 2:
-            #     _, topk_indices = dist.topk(k=2, dim=0, largest=False, sorted=True)
-            #     local_idx = topk_indices[1]
             if len(dist) >= args.topk:
                 _, topk_indices = dist.topk(k=args.topk, dim=0, largest=False, sorted=True)
                 local_idx = topk_indices[torch.randint(0, args.topk, size=(1,))]
@@ -465,6 +402,51 @@ def part_selection(slide_embedding, slide_centroids, slide_assignments):
     part_weights = part_weights / part_weights.sum()
     return selected_part_indices, part_weights, c_mask
 
+
+def tile_assign(tile_loader, feature_extractor, subset, global_centroids, epoch):
+    subset_embedding = torch.randn(len(subset) * args.sample, args.waist)
+    subset_ids = torch.randint(0, args.n_cluster, (len(subset) * args.sample,))
+    subset_indices = torch.randint(0, args.n_cluster, (len(subset) * args.sample,))
+    b_s = args.t_batch_size
+    feature_extractor.eval()
+    if epoch < 1:
+        subset_assignments = torch.randint(0, args.n_cluster, (len(subset) * args.sample,))
+    with torch.no_grad():  # pass subset tiles through base model to retrieve embeddings
+        for i, (input, _, id, local_ind, index) in enumerate(tile_loader):
+            output = feature_extractor(input.to(gpu))
+            subset_ids[(i * b_s):(i * b_s + len(input))] = id
+            subset_indices[(i * b_s):(i * b_s + len(input))] = local_ind
+            emb = output.detach()
+            subset_embedding[(i * b_s):(i * b_s + len(input))] = emb
+            if epoch >= 1:
+                batch_assignments = assign(emb, global_centroids)
+                subset_assignments[(i * b_s):(i * b_s + len(input))] = batch_assignments
+            if args.verbose == 1:
+                print('Epoch: [{0}][{1}/{2}] \t'.format(epoch, i + 1, len(tile_loader)))
+    if epoch < 1:
+        global_centroids = calculate_centroids(subset_embedding, subset_assignments, global_centroids)
+    return global_centroids, subset_assignments, subset_ids, subset_embedding, subset_indices
+
+
+def slide_to_parts(subset_ids, subset_embedding, subset_assignments, subset_indices, epoch):
+    for slide in subset_ids.unique():
+        slide_embedding = subset_embedding[(subset_ids == slide).nonzero().squeeze()]
+        slide_assignments = subset_assignments[(subset_ids == slide).nonzero().squeeze()]
+        slide_indices = subset_indices[(subset_ids == slide).nonzero().squeeze()]
+
+        if epoch == 0:
+            slide_centroids = torch.randn(args.n_cluster, args.waist)
+        else:
+            if slide.item() in local_centroids:
+                slide_centroids = local_centroids[slide.item()]
+            else:
+                slide_centroids = torch.randn(args.n_cluster, args.waist)
+        slide_centroids = calculate_centroids(slide_embedding, slide_assignments, slide_centroids)
+        local_centroids[slide.item()] = slide_centroids
+        part_indices, part_weights, c_mask = part_selection(slide_embedding, slide_centroids, slide_assignments)
+        top_tiles[slide.item()] = slide_indices[part_indices]
+        assignments[slide.item()] = slide_assignments[part_indices]
+        part_information[slide.item()] = list(zip(part_weights, c_mask))
 
 if __name__ == '__main__':
     main()
