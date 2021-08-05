@@ -30,10 +30,10 @@ The following will be generated in the output folder:
 * openslide 1.1.1
   * *Note: We recommend modifying openslide to correct for memory leak issue. Please see https://github.com/openslide/openslide-python/issues/24 for more information.*
 
-## Reference
+## Cite
+[EPIC-Suvival Paper](https://openreview.net/pdf?id=JSSwHS_GU63):
 If you find our work useful, please consider citing our paper:
-
-```bash
+```
 @inproceedings{muhammad2021epic,
   title={EPIC-Survival: End-to-end Part Inferred Clustering for Survival Analysis, with Prognostic Stratification Boosting},
   author={Muhammad, Hassan and Xie, Chensu and Sigel, Carlie S and Doukas, Michael and Alpert, Lindsay and Simpson, Amber Lea and Fuchs, Thomas J},
