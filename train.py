@@ -34,8 +34,6 @@ from models import resblock18, SurvivalResNet
 from lifelines.utils import concordance_index
 
 
-
-
 def main():
     print('!! -------- Initializing EPIC-Survival -------- !!')
     global args, gpu, best_train_ci, best_val_ci
@@ -144,10 +142,12 @@ def main():
         subset_library = subset_library.groupby('SlideID').apply(lambda x: x.sample(n=args.sample, replace=False))
         subset_library = subset_library.sample(frac=1).droplevel(0)
         tile_loader.dataset.assignment(subset_library)
+
         # Initializing Subset Tensors
         subset_embedding = torch.randn(len(subset) * args.sample, args.waist)
         subset_ids = torch.randint(0, args.n_cluster, (len(subset) * args.sample,))
         subset_indices = torch.randint(0, args.n_cluster, (len(subset) * args.sample,))
+
         # Measure Embedding and Assign Clusters to Tiles
         model.eval()
         with torch.no_grad():  # pass subset tiles through base model to retrieve embeddings
@@ -165,7 +165,8 @@ def main():
         if epoch < 1:
             subset_assignments = torch.randint(0, args.n_cluster, (len(subset) * args.sample,))
             global_centroids = calculate_centroids(subset_embedding, subset_assignments, global_centroids)
-        del input, output
+
+
         # Calculate Slide-Level Centroids, Choose Parts
         for slide in subset_ids.unique():
             slide_embedding = subset_embedding[(subset_ids == slide).nonzero().squeeze()]
@@ -185,7 +186,8 @@ def main():
             top_tiles[slide.item()] = slide_indices[part_indices]
             assignments[slide.item()] = slide_assignments[part_indices]
             part_information[slide.item()] = list(zip(part_weights, c_mask))
-        # Creating Part Dataset
+
+        # Creating Part Dataset for Survival Training
         part_dataset = dataloaders.PartLoader(args, subset_library,
                                               top_tiles, augmentations, part_information)
         part_loader = torch.utils.data.DataLoader(part_dataset,
@@ -201,6 +203,7 @@ def main():
                                                         num_workers=workers,
                                                         pin_memory=True)
 
+        #Survival Training
         lossMeter = utils.AverageMeter()
         ciMeter = utils.AverageMeter()
         model.train()
@@ -228,18 +231,22 @@ def main():
         print('Training Corcordance Index...{:.3f}'.format(ciMeter.avg))
 
 
-
             ###################################################################################################################
 
         if validate == 1 and epoch % 5 == 0:
             print('!! -------- Validating EPIC-Survival -------- !!')
+            # Subset Validation Set for Epoch
             validation_set = validation_library.SlideID.unique()
+            val_subset_library = validation_library.groupby('SlideID').apply(lambda x: x.sample(n=1000, replace=False))
+            val_subset_library = val_subset_library.sample(frac=1).droplevel(0)
+
+            # Initializing Subset Tensors
             validation_embedding = torch.randn(len(validation_set) * 1000, args.waist)
             validation_ids = torch.randint(0, args.n_cluster, (len(validation_set) * 1000,))
             validation_indices = torch.randint(0, args.n_cluster, (len(validation_set) * 1000,))
             validation_assignments = torch.randint(0, args.n_cluster, (len(validation_set) * 1000,))
-            val_subset_library = validation_library.groupby('SlideID').apply(lambda x: x.sample(n=1000, replace=False))
-            val_subset_library = val_subset_library.sample(frac=1).droplevel(0)
+
+            # Measure Embedding and Assign Clusters to Tiles
             tile_loader_validation.dataset.assignment(val_subset_library)
             model.eval()
             with torch.no_grad():  # pass subset tiles through base model to retrieve embeddings
@@ -254,6 +261,8 @@ def main():
                     (i * args.t_batch_size):(i * args.t_batch_size + len(input))] = batch_assignments
                     if args.verbose == 1:
                         print('Epoch: [{0}][{1}/{2}] \t'.format(epoch, i, len(tile_loader_validation)))
+
+            # Calculate Slide-Level Centroids, Choose Parts
             for slide in validation_ids.unique():
                 slide_embedding = validation_embedding[(validation_ids == slide).nonzero().squeeze()]
                 slide_assignments = validation_assignments[(validation_ids == slide).nonzero().squeeze()]
@@ -279,6 +288,7 @@ def main():
                                                                  num_workers=workers,
                                                                  pin_memory=True)
 
+            #Survival Data Validation
             ciValMeter = utils.AverageMeter()
             model.eval()
             with torch.no_grad():
@@ -290,11 +300,13 @@ def main():
                     ciValMeter.update(ci.item(), img[0].size(0))
             print('Validation Corcordance Index...{:.3f}'.format(ciValMeter.avg))
 
+            #save risk scores every 5 epochs
             if epoch == 5:
                 risks_out = pd.DataFrame({'SlideID': val_id.long().numpy(),
                                           'Duration': duration,
                                           'Recurrence': event,
                                           '0': risk.squeeze().cpu().numpy()})
+
 
             epoch_ci_val = np.abs(ciValMeter.avg - .5) + .5
             if epoch_ci_val > best_val_ci and epoch > 300:
@@ -334,11 +346,8 @@ def main():
             utils.save_error(epoch_ci, epoch_ci_val, lossMeter.avg, epoch, os.path.join(out_dir, 'convergence.csv'))
 
 
-
-
                 ###################################################################################################################
 
-        # if epoch % 2 == 0:
         print('Updating Centroids................')
         # calculate the new code of the old sample
         tile_loader.dataset.assignment(subset_library)
@@ -409,7 +418,6 @@ class NLPLLossStrat(_Loss):
         strat_loss = 1 / (1 + torch.abs((high.mean() - low.mean())))
         strat_loss = F.smooth_l1_loss(strat_loss, torch.zeros(1).squeeze().to(gpu), reduction='none').to(gpu)
         return neg_log_loss + args.clusteringlambda * clustering_loss + strat_loss
-
 
 
 
