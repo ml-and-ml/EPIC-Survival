@@ -2,7 +2,6 @@ import os
 import torch
 import numpy as np
 import torch.utils.data
-from pdb import set_trace
 from openslide import OpenSlide
 
 

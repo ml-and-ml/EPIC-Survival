@@ -57,8 +57,6 @@ def main():
                                                            args.p_batch_size,
                                                            args.weightdecay,
                                                             )
-        if args.train_full == 1:
-            save_path = save_path + '/test'
         out_dir = os.path.join(root_output, save_path)
 
     if not os.path.exists(out_dir):
@@ -86,18 +84,12 @@ def main():
 
     print('Initialization [2/4] ........ Loading Coordinate File and Creating Training/Validation Split')
 
-    #data = pd.read_csv(args.library)
-    data = torch.load('/lila/data/fuchs/hassan/cholangio/classiceplcholangio_library.pth', encoding='latin1')['library']
-    data = data.astype({"SlideID": int})
-    if args.train_full == 1:
-        train_library = data[data.Split != 'test'].reset_index(drop=True)
-        validate = 0
-    else:
-        train_library = data[data.Split == 'train'].reset_index(drop=True)
-        validation_library = data[data.Split == 'val'].reset_index(drop=True)
-        validate = 1
-        if args.development == 1:
-            train_library = train_library.iloc[0:300000] #subset for quick testing
+    data = pd.read_csv(args.library)
+    train_library = data[data.Split == 'train'].reset_index(drop=True)
+    validation_library = data[data.Split == 'val'].reset_index(drop=True)
+    validate = 1
+    if args.development == 1:
+        train_library = train_library.iloc[0:300000] #subset for quick testing
 
     ###################################################################################################################
 
@@ -121,13 +113,13 @@ def main():
                                               shuffle=False,
                                               num_workers=workers,
                                               pin_memory=True)
-    if args.train_full == 0:
-        tile_dataset_validation = dataloaders.TileLoader(args, validation_library, augmentations_valid)
-        tile_loader_validation = torch.utils.data.DataLoader(tile_dataset_validation,
-                                                             batch_size=args.t_batch_size,
-                                                             shuffle=False,
-                                                             num_workers=workers,
-                                                             pin_memory=True)
+
+    tile_dataset_validation = dataloaders.TileLoader(args, validation_library, augmentations_valid)
+    tile_loader_validation = torch.utils.data.DataLoader(tile_dataset_validation,
+                                                         batch_size=args.t_batch_size,
+                                                         shuffle=False,
+                                                         num_workers=workers,
+                                                         pin_memory=True)
 
     ###################################################################################################################
 
@@ -139,6 +131,7 @@ def main():
     part_information = dict()
     assignments = dict()
     b_s = args.t_batch_size
+
     ###################################################################################################################
 
     print('!! -------- Training EPIC-Survival -------- !!')
@@ -152,8 +145,10 @@ def main():
         tile_loader.dataset.assignment(subset_library)
 
         # Extract Embedding and Assign Clusters to Tiles for given subset
+        if epoch < 1:
+            subset_assignments = torch.randint(0, args.n_cluster, (len(subset) * args.sample,))
         global_centroids, subset_assignments, subset_ids, subset_embedding, subset_indices = \
-            tile_assign(tile_loader, feature_extractor, subset, global_centroids, epoch)
+            tile_assign(tile_loader, feature_extractor, subset, global_centroids, epoch, subset_assignments)
 
         # Calculate Slide-Level Centroids, Choose Parts
         slide_to_parts(subset_ids, subset_embedding, subset_assignments, subset_indices, epoch)
@@ -165,7 +160,8 @@ def main():
                                                   shuffle=True,
                                                   num_workers=workers,
                                                   pin_memory=True)
-        constraint_dataset = dataloaders.ConstraintLoader(args, subset_library, augmentations, local_centroids, subset_assignments)
+        constraint_dataset = dataloaders.ConstraintLoader(args, subset_library, augmentations,
+                                                          local_centroids, subset_assignments)
         constraint_loader = torch.utils.data.DataLoader(constraint_dataset,
                                                         batch_size=256,
                                                         shuffle=False,
@@ -198,7 +194,7 @@ def main():
 
             ###################################################################################################################
 
-        if validate == 1 and epoch % 5 == 0:
+        if validate == 1 and epoch % 5 == 0: #valdiate every 5 epochs to save time
             print('!! -------- Validating EPIC-Survival -------- !!')
             # Subset Validation Set for Epoch
             validation_set = validation_library.SlideID.unique()
@@ -210,8 +206,6 @@ def main():
             validation_ids = torch.randint(0, args.n_cluster, (len(validation_set) * 1000,))
             validation_indices = torch.randint(0, args.n_cluster, (len(validation_set) * 1000,))
             validation_assignments = torch.randint(0, args.n_cluster, (len(validation_set) * 1000,))
-
-
 
             # Measure Embedding and Assign Clusters to Tiles
             tile_loader_validation.dataset.assignment(val_subset_library)
@@ -230,23 +224,7 @@ def main():
                         print('Epoch: [{0}][{1}/{2}] \t'.format(epoch, i, len(tile_loader_validation)))
 
             # Calculate Slide-Level Centroids, Choose Parts
-            for slide in validation_ids.unique():
-                slide_embedding = validation_embedding[(validation_ids == slide).nonzero().squeeze()]
-                slide_assignments = validation_assignments[(validation_ids == slide).nonzero().squeeze()]
-                slide_indices = validation_indices[(validation_ids == slide).nonzero().squeeze()]
-                if epoch == 0:
-                    slide_centroids = torch.randn(args.n_cluster, args.waist)
-                else:
-                    if slide.item() in local_centroids:
-                        slide_centroids = local_centroids[slide.item()]
-                    else:
-                        slide_centroids = torch.randn(args.n_cluster, args.waist)
-                slide_centroids = calculate_centroids(slide_embedding, slide_assignments, slide_centroids)
-                local_centroids[slide.item()] = slide_centroids
-                part_indices, part_weights, c_mask = part_selection(slide_embedding, slide_centroids,slide_assignments)
-                top_tiles[slide.item()] = slide_indices[part_indices]
-                assignments[slide.item()] = slide_assignments[part_indices]
-                part_information[slide.item()] = list(zip(part_weights, c_mask))
+            slide_to_parts(validation_ids, validation_embedding, validation_assignments, validation_indices, epoch)
             part_dataset_validation = dataloaders.PartLoader(args, validation_library,
                                                              top_tiles, augmentations_valid, part_information)
             part_loader_validation = torch.utils.data.DataLoader(part_dataset_validation,
@@ -293,24 +271,9 @@ def main():
                 }, out_dir, 'checkpoint_best.pth')
                 risks_out[str(epoch)] = risk.cpu().numpy()
 
-            if epoch > 300 and epoch % 100 == 0:
-                print('Saving checkpoint....')
-                utils.save_checkpoint({
-                    'epoch': epoch,
-                    'state_dict': model.state_dict(),
-                    'optimizer': optimizer.state_dict(),
-                    'g_centers': global_centroids,
-                    'l_centers': local_centroids,
-                    'top_tiles': top_tiles,
-                    'part_information': part_information,
-                    'assignments': assignments,
-                }, out_dir, 'checkpoint_{}.pth'.format(epoch))
 
-        epoch_ci = np.abs(ciMeter.avg - .5) + .5
-        if args.train_full == 1:
-            utils.save_error(epoch_ci, 0, lossMeter.avg, epoch, os.path.join(out_dir, 'convergence.csv'))
-        else:
-            utils.save_error(epoch_ci, epoch_ci_val, lossMeter.avg, epoch, os.path.join(out_dir, 'convergence.csv'))
+        epoch_ci = np.abs(ciMeter.avg - .5) + .5 #normalize ci
+        utils.save_error(epoch_ci, epoch_ci_val, lossMeter.avg, epoch, os.path.join(out_dir, 'convergence.csv'))
 
 
                 ###################################################################################################################
@@ -343,22 +306,9 @@ def main():
 
         global_centroids = calculate_centroids(full_code_old, subset_assignments, global_centroids)
 
+        #End of training loop
 
-        if args.train_full == 1 and epoch % 50 == 0:
-            print('Saving checkpoint....')
-            utils.save_checkpoint({
-                'epoch': epoch,
-                'state_dict': model.state_dict(),
-                'optimizer': optimizer.state_dict(),
-                'g_centers': global_centroids,
-                'l_centers': local_centroids,
-                'top_tiles': top_tiles,
-                'part_information': part_information,
-                'assignments': assignments,
-            }, out_dir, 'checkpoint_{}.pth'.format(epoch))
-
-
-
+###################################################################################################################
 
 
 def calculate_centroids(embedding, assignments, centroids):
@@ -403,14 +353,12 @@ def part_selection(slide_embedding, slide_centroids, slide_assignments):
     return selected_part_indices, part_weights, c_mask
 
 
-def tile_assign(tile_loader, feature_extractor, subset, global_centroids, epoch):
+def tile_assign(tile_loader, feature_extractor, subset, global_centroids, epoch, subset_assignments):
     subset_embedding = torch.randn(len(subset) * args.sample, args.waist)
     subset_ids = torch.randint(0, args.n_cluster, (len(subset) * args.sample,))
     subset_indices = torch.randint(0, args.n_cluster, (len(subset) * args.sample,))
     b_s = args.t_batch_size
     feature_extractor.eval()
-    if epoch < 1:
-        subset_assignments = torch.randint(0, args.n_cluster, (len(subset) * args.sample,))
     with torch.no_grad():  # pass subset tiles through base model to retrieve embeddings
         for i, (input, _, id, local_ind, index) in enumerate(tile_loader):
             output = feature_extractor(input.to(gpu))
