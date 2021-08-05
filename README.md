@@ -7,7 +7,7 @@ The main training script is `train.py`. Please use `python train.py --help` to s
 
 The tile library (csv) should have the following format:
 
-SlideID | x | y | Duration | Event | Pplit
+SlideID | x | y | Duration | Event | Split
 ------------ | ------------- | -------------| -------------| ------------- | -------------
 1 | 24521 | 23426 | 16.2 | 0 | 'train'
 1 | 6732 | 3323 | 16.2 | 0 | 'train'
