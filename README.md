@@ -7,13 +7,15 @@ The main training script is `train.py`. Please use `python train.py --help` to s
 
 The tile library (csv) should have the following format:
 
-SlideID | x | y | Duration | Event
------------- | ------------- | -------------| -------------| -------------
-1 | 24521 | 23426 | 16.2 | 0 
-1 | 6732 | 3323 | 16.2 | 0 
-1 | 1232 | 5551 | 16.2 | 0
+SlideID | x | y | Duration | Event | Pplit
+------------ | ------------- | -------------| -------------| ------------- | -------------
+1 | 24521 | 23426 | 16.2 | 0 | 'train'
+1 | 6732 | 3323 | 16.2 | 0 | 'train'
+1 | 1232 | 5551 | 16.2 | 0| 'train'
 ... | ... | ... | ... | ... 
-324 | 34265 | 122 | 3.0 | 1 
+324 | 34265 | 122 | 3.0 | 1 | 'val'
+... | ... | ... | ... | ... 
+556 | 2264 | 2436 | 174.0 | 1 | 'test'
 
 The dataloader will load all `.svs` images located at `args.slide_path` during initiation, and pull tiles on-the-fly using the `(x,y)` coordinates during training.
 
